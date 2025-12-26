@@ -21,8 +21,9 @@ if (!(Test-Path -Path $PROFILE)) {
   New-Item -ItemType File -Path $PROFILE -Force
 }
 ```
-2. Second, copy paste the content of this `Microsoft.PowerShell_profile` to that profile you created. 
-3. Reopen your powershell terminal.
+2. Type `$PROFILE` in your powershell to find the path of that profile. For example, in my case it is `C:\Users\pswpe\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`.
+3. Next, copy paste the content of this `Microsoft.PowerShell_profile` to that profile you created. 
+4. Reopen your powershell terminal.
 
 For more information, check out this [page](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.5).
 
