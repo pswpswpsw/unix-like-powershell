@@ -57,35 +57,31 @@ These are the “muscle-memory” commands that many Ubuntu users reach for firs
 
 ## Installation
 
-### 1) Create your profile file (if it doesn’t exist)
+1. Create your profile file (if it doesn’t exist)
 ```powershell
 if (!(Test-Path -LiteralPath $PROFILE)) {
   New-Item -ItemType File -Path $PROFILE -Force | Out-Null
 }
 ```
-
-### 2) Find the profile path
+2. Find the profile path
 ```powershell
 $PROFILE
 ```
-
 Example (Windows):
 `C:\Users\<you>\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`
 
-### 3) Copy the profile script into your `$PROFILE`
+3. Copy the profile script into your `$PROFILE`
 Open your profile:
 ```powershell
 vim $PROFILE
 ```
-
 Then copy/paste the contents of this repo’s `Microsoft.PowerShell_profile.ps1` into it and save.
 
-### 4) Reload (or restart) your terminal
+4. Reload (or restart) your terminal
 Reload without restarting:
 ```powershell
 . $PROFILE
 ```
-
 More details on profiles:
 https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.5
 
