@@ -1,150 +1,65 @@
 # ============================================================
-# Ubuntu-ish PowerShell profile (bash-like UX on Windows) — pwsh 7.x
+# unix-like-powershell — Ubuntu-ish UX for PowerShell 7.x (Windows)
 # Paste into: $PROFILE
 # ============================================================
 
-# --- Basics ---
+# ----------------------------
+# Basics
+# ----------------------------
 $PSStyle.OutputRendering = 'Ansi' 2>$null
 $env:LC_ALL = "C.UTF-8"
 $env:LANG   = "C.UTF-8"
 
-# Make sure our rm function is used (PowerShell has an rm alias by default)
-Remove-Item -Path Alias:rm -Force -ErrorAction SilentlyContinue
-Remove-Item -Path Alias:ls -Force -ErrorAction SilentlyContinue
-
+# Keep HOME stable (best-effort)
 Set-Variable -Name HOME -Value $HOME -Option ReadOnly -ErrorAction SilentlyContinue
 
-# --- PSReadLine: quiet typing + bash-like keys ---
+# ----------------------------
+# IMPORTANT: remove built-in aliases we override
+# PowerShell resolves Aliases before Functions.
+# Without this, commands like `mkdir -p` may still hit the built-in alias.
+#
+# We only remove aliases for commands we re-implement below.
+$__unixlikeAliases = @('ls','rm','mkdir','cd','cat','man','less')
+foreach ($__a in $__unixlikeAliases) {
+    Remove-Item -Path ("Alias:" + $__a) -Force -ErrorAction SilentlyContinue
+}
+
+# ----------------------------
+# PSReadLine: quiet typing + bash-like keys
+# ----------------------------
 try {
     Import-Module PSReadLine -ErrorAction Stop
 
     # No “history UI” while typing
     Set-PSReadLineOption -PredictionSource None
-
     Set-PSReadLineOption -HistoryNoDuplicates
     Set-PSReadLineOption -BellStyle None
 
-    # prefix history search on up/down
+    # Prefix history search on up/down
     Set-PSReadLineKeyHandler -Key UpArrow   -Function HistorySearchBackward
     Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
 
     # Ctrl+r reverse history search
     Set-PSReadLineKeyHandler -Chord 'Ctrl+r' -Function ReverseSearchHistory
 
-    # menu completion (paths)
+    # Menu completion (paths)
     Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
 
-    # bash-ish shortcuts
+    # Bash-ish shortcuts
     Set-PSReadLineKeyHandler -Chord 'Ctrl+l' -ScriptBlock { Clear-Host }
     Set-PSReadLineKeyHandler -Chord 'Ctrl+d' -Function DeleteCharOrExit
     Set-PSReadLineKeyHandler -Chord 'Ctrl+a' -Function BeginningOfLine
     Set-PSReadLineKeyHandler -Chord 'Ctrl+e' -Function EndOfLine
     Set-PSReadLineKeyHandler -Chord 'Ctrl+k' -Function KillLine
     Set-PSReadLineKeyHandler -Chord 'Ctrl+u' -Function BackwardKillLine
-} catch {}
+} catch { }
 
-# --- Helpers ---
-function _HasCmd([string]$name) { return [bool](Get-Command $name -ErrorAction SilentlyContinue) }
-
-function rm {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-
-    if (-not $Args -or $Args.Count -eq 0) { return }
-
-    $force = $false
-    $recurse = $false
-    $interactive = $false
-    $verbose = $false
-    $dryRun = $false
-    $paths = @()
-    $stopOpts = $false
-
-    foreach ($a in $Args) {
-        if ($stopOpts) { $paths += $a; continue }
-
-        if ($a -eq '--') { $stopOpts = $true; continue }
-
-        # Long options
-        if ($a -like '--*') {
-            switch ($a) {
-                '--force'       { $force = $true; continue }
-                '--recursive'   { $recurse = $true; continue }
-                '--interactive' { $interactive = $true; continue }
-                '--verbose'     { $verbose = $true; continue }
-                '--dry-run'     { $dryRun = $true; continue }
-                '--help' {
-                    @"
-rm (Linux-ish)
-  -f, --force         ignore missing files, never prompt
-  -r, -R, --recursive remove directories and their contents
-  -i, --interactive   prompt before every removal
-  -v, --verbose       explain what is being done
-  -n, --dry-run       show what would be removed
-  --                 end of options (paths can start with -)
-Examples:
-  rm -rf build
-  rm -r -f build
-  rm -- -weirdname
-"@ | Write-Host
-                    return
-                }
-                default { Write-Error "rm: unknown option '$a'"; return }
-            }
-        }
-
-        # Short options (bundled): -rf, -frv, etc.
-        if ($a -like '-*' -and $a -ne '-') {
-            $bundle = $a.Substring(1)
-            $allFlagsKnown = $true
-            foreach ($ch in $bundle.ToCharArray()) {
-                switch ($ch) {
-                    'f' { $force = $true }
-                    'r' { $recurse = $true }
-                    'R' { $recurse = $true }
-                    'i' { $interactive = $true }
-                    'v' { $verbose = $true }
-                    'n' { $dryRun = $true }
-                    default { $allFlagsKnown = $false; break }
-                }
-            }
-            if ($allFlagsKnown) { continue }
-            # If it doesn't look like a pure flag bundle, treat as a path
-        }
-
-        $paths += $a
-    }
-
-    if ($paths.Count -eq 0) { Write-Error "rm: missing operand"; return }
-
-    $ea = if ($force) { 'SilentlyContinue' } else { 'Continue' }
-
-    foreach ($p in $paths) {
-        if ($interactive) {
-            $ans = Read-Host "rm: remove '$p'? [y/N]"
-            if ($ans -notin @('y','Y','yes','YES')) { continue }
-        }
-
-        if ($dryRun) {
-            if ($verbose) { Write-Host "[dry-run] would remove: $p" }
-            else { Write-Host $p }
-            continue
-        }
-
-        try {
-            # Allow globbing like rm *.txt, but use LiteralPath when the path exists literally
-            if (Test-Path -LiteralPath $p) {
-                Remove-Item -LiteralPath $p -Recurse:$recurse -Force:$force -Confirm:$false -ErrorAction $ea
-            } else {
-                Remove-Item -Path $p -Recurse:$recurse -Force:$force -Confirm:$false -ErrorAction $ea
-            }
-
-            if ($verbose) { Write-Host "removed '$p'" }
-        } catch {
-            if (-not $force) { Write-Error $_ }
-        }
-    }
+# ----------------------------
+# Helpers
+# ----------------------------
+function _HasCmd([string]$name) {
+    return [bool](Get-Command $name -ErrorAction SilentlyContinue)
 }
-
 
 function _HumanSize([long]$bytes) {
     if ($bytes -lt 0) { return "$bytes" }
@@ -220,10 +135,9 @@ function tail {
     else         { Get-Content -LiteralPath $Path -Tail $Lines }
 }
 
-
 function less {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
-    if ($Args.Count -eq 0) { return }
+    if (-not $Args -or $Args.Count -eq 0) { return }
     Get-Content -LiteralPath $Args | Out-Host -Paging
 }
 
@@ -233,273 +147,118 @@ function man {
     Get-Help $Cmd -Full | Out-Host -Paging
 }
 
-# --- cd with ~ and "-" (previous dir) ---
+# ----------------------------
+# cd with ~ and "-" (previous dir)
+# ----------------------------
 $global:__LAST_DIR = $PWD.Path
 function cd {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
+
     $target = if ($Args.Count -gt 0) { $Args[0] } else { $HOME }
+
     if ($target -eq "-") {
         $tmp = $PWD.Path
         Set-Location -LiteralPath $global:__LAST_DIR
         $global:__LAST_DIR = $tmp
         return
     }
+
     if ($target -like "~*") { $target = $target -replace '^~', $HOME }
+
     $global:__LAST_DIR = $PWD.Path
     Set-Location -LiteralPath $target
 }
 
-function .. { Set-Location .. }
-function ... { Set-Location ../.. }
+function ..   { Set-Location .. }
+function ...  { Set-Location ../.. }
 function .... { Set-Location ../../.. }
 
-# --- ls that supports -a -l -h -t -r (PowerShell-style flags) ---
-function ls {
-    param(
-        [Alias('a')]
-        [switch]$All,
+# ----------------------------
+# mkdir: supports -p / --parents and multiple paths
+# ----------------------------
+function mkdir {
+    # Use $args so `mkdir -p a/b c/d` works.
+    $parents = $false
+    $verbose = $false
+    $paths   = @()
+    $stopOpts = $false
 
-        [Alias('l')]
-        [switch]$Long,
+    foreach ($a in $args) {
+        if ($stopOpts) { $paths += $a; continue }
+        if ($a -eq '--') { $stopOpts = $true; continue }
 
-        [Alias('h')]
-        [switch]$Human,
-
-        [Alias('t')]
-        [switch]$Time,
-
-        [Alias('r')]
-        [switch]$Reverse,
-
-        [Parameter(ValueFromRemainingArguments=$true)]
-        [string[]]$Path
-    )
-
-    # If eza exists, use it (native flags like -alh will work there)
-    if (_HasCmd "eza") {
-        $nativeArgs = @()
-        if ($All)    { $nativeArgs += "-a" }
-        if ($Long)   { $nativeArgs += "-l" }
-        if ($Human)  { $nativeArgs += "-h" }
-        if ($Time)   { $nativeArgs += "-t" }
-        if ($Reverse){ $nativeArgs += "-r" }
-        if ($Path -and $Path.Count -gt 0) { $nativeArgs += $Path }
-        & eza @nativeArgs
-        return
-    }
-
-    if (-not $Path -or $Path.Count -eq 0) { $Path = @(".") }
-
-    $items = Get-ChildItem -LiteralPath $Path -Force:$All -ErrorAction SilentlyContinue
-
-    $prop = if ($Time) { 'LastWriteTime' } else { 'Name' }
-    $desc = $Time
-    if ($Reverse) { $desc = -not $desc }
-    $items = $items | Sort-Object -Property $prop -Descending:$desc
-
-    if ($Long) {
-        if ($Human) {
-            $items | Select-Object Mode, LastWriteTime, @{Name="Size";Expression={
-                if ($_.PSIsContainer) { "-" } else { _HumanSize $_.Length }
-            }}, Name | Format-Table -AutoSize
-        } else {
-            $items | Format-Table -AutoSize
+        if ($a -like '--*') {
+            switch ($a) {
+                '--parents' { $parents = $true; continue }
+                '--verbose' { $verbose = $true; continue }
+                '--help' {
+                    @"
+mkdir (Linux-ish)
+  -p, --parents   create parent directories as needed
+  -v, --verbose   print a message for each created directory
+  --              end of options
+Examples:
+  mkdir -p a\b\c
+  mkdir -pv a\b\c d\e
+"@ | Write-Host
+                    return
+                }
+                default { $paths += $a; continue }
+            }
         }
-    } else {
-        foreach ($it in $items) {
-            if ($it.PSIsContainer) { "$($it.Name)/" } else { $it.Name }
+
+        if ($a -like '-*' -and $a -ne '-') {
+            $bundle = $a.Substring(1)
+            $recognized = $true
+            foreach ($ch in $bundle.ToCharArray()) {
+                switch ($ch) {
+                    'p' { $parents = $true }
+                    'v' { $verbose = $true }
+                    default { $recognized = $false; break }
+                }
+                if (-not $recognized) { break }
+            }
+            if ($recognized) { continue }
+        }
+
+        $paths += $a
+    }
+
+    if ($paths.Count -eq 0) { Write-Error "mkdir: missing operand"; return }
+
+    foreach ($p in $paths) {
+        try {
+            if ($parents) {
+                $full = $p
+                if ($PWD.Provider.Name -eq 'FileSystem') {
+                    # Resolve relative paths ourselves (more reliable than Path.GetFullPath(path, base) across runtimes)
+                    if (-not [System.IO.Path]::IsPathRooted($p)) {
+                        $full = Join-Path -Path $PWD.Path -ChildPath $p
+                    }
+                    # Accept forward slashes too
+                    $full = $full -replace '/', '\'
+                }
+                [System.IO.Directory]::CreateDirectory($full) | Out-Null
+            } else {
+                # mimic mkdir without -p: error if parent missing
+                $parent = Split-Path -Path $p -Parent
+                if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
+                    Write-Error "mkdir: cannot create directory '$p': No such file or directory"
+                    continue
+                }
+                New-Item -ItemType Directory -Path $p -Force | Out-Null
+            }
+            if ($verbose) { Write-Host "mkdir: created '$p'" }
+        } catch {
+            Write-Error $_
         }
     }
 }
 
-# --- cat (use bat if available) ---
-function cat {
-    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
-    if (_HasCmd "bat") { & bat @Args; return }
-    if ($Args.Count -eq 0) { return }
-    Get-Content -LiteralPath $Args
-}
-
-# --- grep (use rg if available; else Select-String) ---
-function grep {
-    param(
-        [Alias('i')] [switch]$IgnoreCase,
-        [Alias('n')] [switch]$LineNumbers,
-        [Alias('r')] [switch]$Recurse,
-        [Alias('v')] [switch]$InvertMatch,
-
-        [Parameter(Mandatory=$true, Position=0)]
-        [string]$Pattern,
-
-        [Parameter(ValueFromRemainingArguments=$true)]
-        [string[]]$Path
-    )
-
-    if (_HasCmd "rg") {
-        $nativeArgs = @()
-        if ($IgnoreCase) { $nativeArgs += "-i" }
-        if ($LineNumbers){ $nativeArgs += "-n" }
-        if ($Recurse)    { $nativeArgs += "-r" }
-        if ($InvertMatch){ $nativeArgs += "-v" }
-        $nativeArgs += $Pattern
-        if ($Path -and $Path.Count -gt 0) { $nativeArgs += $Path }
-        & rg @nativeArgs
-        return
-    }
-
-    if (-not $Path -or $Path.Count -eq 0) { $Path = @(".") }
-
-    $ssArgs = @{
-        Pattern     = $Pattern
-        Path        = $Path
-        ErrorAction = 'SilentlyContinue'
-    }
-    if ($IgnoreCase) { $ssArgs.CaseSensitive = $false }
-    if ($Recurse)    { $ssArgs.Recurse = $true }
-    if ($InvertMatch){ $ssArgs.NotMatch = $true }
-
-    foreach ($m in (Select-String @ssArgs)) {
-        if ($LineNumbers) { "{0}:{1}:{2}" -f $m.Path, $m.LineNumber, $m.Line.TrimEnd() }
-        else              { "{0}:{1}" -f $m.Path, $m.Line.TrimEnd() }
-    }
-}
-
-# --- rm/cp/mv with bash-ish flags (PowerShell-style) ---
-
-function cp {
-    param(
-        [Alias('r','R')] [switch]$Recurse,
-        [Alias('f')] [switch]$Force,
-
-        [Parameter(Mandatory=$true, Position=0)]
-        [string[]]$Src,
-
-        [Parameter(Mandatory=$true, Position=1)]
-        [string]$Dest
-    )
-
-    foreach ($s in $Src) {
-        Copy-Item -LiteralPath $s -Destination $Dest -Recurse:$Recurse -Force:$Force
-    }
-}
-
-function mv {
-    param(
-        [Alias('f')] [switch]$Force,
-
-        [Parameter(Mandatory=$true, ValueFromRemainingArguments=$true)]
-        [string[]]$Args
-    )
-    if ($Args.Count -lt 2) { Write-Error "mv: need SRC... DEST"; return }
-
-    $dest = $Args[-1]
-    $srcs = $Args[0..($Args.Count-2)]
-
-    foreach ($s in $srcs) {
-        Move-Item -LiteralPath $s -Destination $dest -Force:$Force
-    }
-}
-
-# --- df / du (rough equivalents) ---
-function df {
-    $drives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.TotalSize -gt 0 }
-    $drives |
-        Select-Object `
-            @{Name="Name";  Expression={ $_.Name.TrimEnd('\') }},
-            @{Name="Root";  Expression={ $_.RootDirectory.FullName }},
-            @{Name="Used";  Expression={ _HumanSize([long]($_.TotalSize - $_.AvailableFreeSpace)) }},
-            @{Name="Free";  Expression={ _HumanSize([long]($_.AvailableFreeSpace)) }},
-            @{Name="Total"; Expression={ _HumanSize([long]($_.TotalSize)) }} |
-        Format-Table -AutoSize
-}
-
-function du {
-    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Path)
-    if (-not $Path -or $Path.Count -eq 0) { $Path = @(".") }
-    foreach ($p in $Path) {
-        $sum = (Get-ChildItem -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue |
-            Where-Object { -not $_.PSIsContainer } |
-            Measure-Object -Property Length -Sum).Sum
-        "{0}`t{1}" -f (_HumanSize([long]$sum)), $p
-    }
-}
-
-# --- sudo (best effort): opens an elevated pwsh and runs the command there ---
-function sudo {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-    if (-not $Args -or $Args.Count -eq 0) { Write-Error "sudo: missing command"; return }
-
-    $shell = if (_HasCmd "pwsh") { "pwsh" } else { "powershell" }
-
-    $cwd = $PWD.Path -replace "'", "''"
-    $qArgs = $Args | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }
-
-    $cmd = "Set-Location -LiteralPath '$cwd'; & $($qArgs[0])"
-    if ($qArgs.Count -gt 1) { $cmd += " " + (($qArgs | Select-Object -Skip 1) -join " ") }
-
-    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
-    Start-Process -Verb RunAs -FilePath $shell -ArgumentList @("-NoExit","-EncodedCommand",$enc)
-}
-
-# --- Bash-like prompt with git branch ---
-function _GitInfo {
-    if (-not (_HasCmd "git")) { return $null }
-    try {
-        $inside = git rev-parse --is-inside-work-tree 2>$null
-        if ($inside -ne "true") { return $null }
-        $branch = git rev-parse --abbrev-ref HEAD 2>$null
-        $dirty  = (git status --porcelain 2>$null)
-        $mark = if ($dirty) { "*" } else { "" }
-        return "($branch$mark)"
-    } catch { return $null }
-}
-
-function prompt {
-    $loc = $executionContext.SessionState.Path.CurrentLocation
-
-    # Tell Windows Terminal the current working directory (so Duplicate Tab uses it)
-    $wtCwd = ""
-    if ($loc.Provider.Name -eq "FileSystem") {
-        $esc = [char]27
-        $wtCwd = "$esc]9;9;`"$($loc.ProviderPath)`"$esc\"
-    }
-
-    $user  = $env:USERNAME
-    $hostn = $env:COMPUTERNAME
-
-    $path = $PWD.Path
-    if ($path.StartsWith($HOME, [System.StringComparison]::OrdinalIgnoreCase)) {
-        $path = "~" + $path.Substring($HOME.Length)
-    }
-
-    $git = _GitInfo
-
-    $cUser  = "`e[1;32m"
-    $cPath  = "`e[1;34m"
-    $cGit   = "`e[0;33m"
-    $cReset = "`e[0m"
-
-    $symbol = "$"
-
-    if ($git) {
-        return "$wtCwd${cUser}${user}@${hostn}${cReset}:${cPath}${path}${cReset} ${cGit}${git}${cReset}$symbol "
-    } else {
-        return "$wtCwd${cUser}${user}@${hostn}${cReset}:${cPath}${path}${cReset}$symbol "
-    }
-}
-
-# ============================================================
-# Overrides / fixes (unix-like-powershell v3)
-# - Make ls/grep/mkdir behave more like GNU coreutils
-# - Ensure our functions win over built-in aliases
-# ============================================================
-
-Remove-Item -Path Alias:ls    -Force -ErrorAction SilentlyContinue
-Remove-Item -Path Alias:grep  -Force -ErrorAction SilentlyContinue
-Remove-Item -Path Alias:mkdir -Force -ErrorAction SilentlyContinue
-
+# ----------------------------
+# ls: supports bundled flags like -lrth / -ls / -alh
+# ----------------------------
 function ls {
-    # Use $args (no param block) so calls like `ls -lrth` don't get treated as named parameters.
     if (_HasCmd "eza") { & eza @args; return }
 
     $All     = $false
@@ -516,7 +275,6 @@ function ls {
         if ($stopOpts) { $paths += $a; continue }
         if ($a -eq '--') { $stopOpts = $true; continue }
 
-        # Long opts (best-effort)
         if ($a -like '--*') {
             switch ($a) {
                 '--all'            { $All = $true; continue }
@@ -524,15 +282,13 @@ function ls {
                 '--human-readable' { $Human = $true; continue }
                 '--time'           { $Time = $true; continue }
                 '--reverse'        { $Reverse = $true; continue }
-                '--size'           { $Blocks = $true; continue }  # mimic -s
+                '--size'           { $Blocks = $true; continue } # best-effort
                 default            { $paths += $a; continue }
             }
         }
 
-        # Short bundled flags: -alh, -lrth, -ls, ...
         if ($a -like '-*' -and $a -ne '-') {
             $bundle = $a.Substring(1)
-
             $recognized = $true
             foreach ($ch in $bundle.ToCharArray()) {
                 switch ($ch) {
@@ -546,9 +302,7 @@ function ls {
                 }
                 if (-not $recognized) { break }
             }
-
             if ($recognized) { continue }
-            # If not recognized, treat as a path (for names starting with -)
         }
 
         $paths += $a
@@ -556,7 +310,6 @@ function ls {
 
     if ($paths.Count -eq 0) { $paths = @(".") }
 
-    # Gather items (support literal paths + globs)
     $items = @()
     foreach ($p in $paths) {
         try {
@@ -605,16 +358,15 @@ function ls {
 
     foreach ($it in $items) {
         $name = if ($it.PSIsContainer) { "$($it.Name)/" } else { $it.Name }
-        if ($Blocks) {
-            "{0}`t{1}" -f (_Blocks1K $it), $name
-        } else {
-            $name
-        }
+        if ($Blocks) { "{0}`t{1}" -f (_Blocks1K $it), $name }
+        else { $name }
     }
 }
 
+# ----------------------------
+# grep: supports -inrvF bundles, defaults to case-sensitive like GNU grep
+# ----------------------------
 function grep {
-    # Use $args so `grep -in PATTERN file` behaves like GNU grep.
     $ignoreCase = $false
     $lineNums   = $false
     $recurse    = $false
@@ -636,20 +388,20 @@ function grep {
         if ($pattern -eq $null -and $a -like '-*' -and $a -ne '-') {
             if ($a -like '--*') {
                 switch ($a) {
-                    '--ignore-case' { $ignoreCase = $true; continue }
-                    '--line-number' { $lineNums = $true; continue }
-                    '--recursive'   { $recurse = $true; continue }
-                    '--invert-match'{ $invert = $true; continue }
+                    '--ignore-case'  { $ignoreCase = $true; continue }
+                    '--line-number'  { $lineNums = $true; continue }
+                    '--recursive'    { $recurse = $true; continue }
+                    '--invert-match' { $invert = $true; continue }
                     '--fixed-strings'{ $fixed = $true; continue }
                     '--help' {
                         @"
 grep (Linux-ish)
-  -i, --ignore-case      ignore case
-  -n, --line-number      show line numbers (path:line:content)
-  -r, -R, --recursive    recurse into directories
-  -v, --invert-match     select non-matching lines
-  -F, --fixed-strings    literal (non-regex) match
-  --                     end of options
+  -i, --ignore-case     ignore case distinctions
+  -n, --line-number     print line number with output lines
+  -r, -R, --recursive   read all files under each directory, recursively
+  -v, --invert-match    select non-matching lines
+  -F, --fixed-strings   PATTERN is a set of literal strings
+  --                    end of options
 Examples:
   grep apple file.txt
   grep -in apple .
@@ -657,9 +409,8 @@ Examples:
 "@ | Write-Host
                         return
                     }
-                    default { } # unknown long opts are ignored (treated later)
+                    default { } # unknown long opts treated as non-option below
                 }
-                continue
             }
 
             $bundle = $a.Substring(1)
@@ -672,13 +423,12 @@ Examples:
                     'R' { $recurse = $true }
                     'v' { $invert = $true }
                     'F' { $fixed = $true }
-                    'E' { } # extended regex (default in rg), no-op
+                    'E' { } # extended regex (default), no-op
                     default { $recognized = $false; break }
                 }
                 if (-not $recognized) { break }
             }
             if ($recognized) { continue }
-            # not a pure flag bundle => treat as pattern (e.g., negative numbers)
         }
 
         if ($pattern -eq $null) { $pattern = $a; continue }
@@ -688,19 +438,24 @@ Examples:
     if (-not $pattern) { Write-Error "grep: missing PATTERN"; return }
     if ($paths.Count -eq 0) { $paths = @(".") }
 
-    # If ripgrep exists, prefer it (fast + native semantics)
+    # Prefer ripgrep if installed
     if (_HasCmd "rg") {
         $rgArgs = @()
+
+        # Make rg behave more like classic grep (don't respect .gitignore / ignore files)
+        # Tip from rg man page: use -uuu for unrestricted search.
+        if ($recurse) { $rgArgs += "-uuu" }
+
+        # Keep output stable for scripts
+        $rgArgs += "--color=never"
         if ($ignoreCase) { $rgArgs += "-i" }
         if ($lineNums)   { $rgArgs += "-n" }
         if ($invert)     { $rgArgs += "-v" }
         if ($fixed)      { $rgArgs += "-F" }
-
-        # Handle directories like grep: require -r for directories
-        if (-not $recurse) {
+        if ($recurse)    { } else {
             foreach ($p in $paths) {
                 if (Test-Path -LiteralPath $p -PathType Container) {
-                    Write-Error "grep: $($p): Is a directory (use -r)"
+                    Write-Error ("grep: {0}: Is a directory (use -r)" -f $p)
                     return
                 }
             }
@@ -718,7 +473,10 @@ Examples:
     foreach ($p in $paths) {
         if (Test-Path -LiteralPath $p) {
             if (Test-Path -LiteralPath $p -PathType Container) {
-                if (-not $recurse) { Write-Error "grep: $($p): Is a directory (use -r)"; return }
+                if (-not $recurse) {
+                    Write-Error ("grep: {0}: Is a directory (use -r)" -f $p)
+                    return
+                }
                 Get-ChildItem -LiteralPath $p -Recurse -File -ErrorAction SilentlyContinue |
                     ForEach-Object { $fileList.Add($_.FullName) } | Out-Null
             } else {
@@ -747,7 +505,6 @@ Examples:
 
     # GNU grep default is case-sensitive; Select-String default is not.
     $ssArgs.CaseSensitive = -not $ignoreCase
-
     if ($fixed) { $ssArgs.SimpleMatch = $true }
 
     foreach ($m in (Select-String @ssArgs)) {
@@ -756,35 +513,50 @@ Examples:
     }
 }
 
-function mkdir {
-    # GNU-ish mkdir: supports -p and multiple paths.
-    $parents = $false
+# ----------------------------
+# rm: supports bundled -rf, -n (dry run), -v (verbose), -- to end opts
+# ----------------------------
+function rm {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+
+    if (-not $Args -or $Args.Count -eq 0) { return }
+
+    $force = $false
+    $recurse = $false
+    $interactive = $false
     $verbose = $false
-    $paths   = @()
+    $dryRun = $false
+    $paths = @()
     $stopOpts = $false
 
-    foreach ($a in $args) {
+    foreach ($a in $Args) {
         if ($stopOpts) { $paths += $a; continue }
         if ($a -eq '--') { $stopOpts = $true; continue }
 
         if ($a -like '--*') {
             switch ($a) {
-                '--parents' { $parents = $true; continue }
-                '--verbose' { $verbose = $true; continue }
+                '--force'       { $force = $true; continue }
+                '--recursive'   { $recurse = $true; continue }
+                '--interactive' { $interactive = $true; continue }
+                '--verbose'     { $verbose = $true; continue }
+                '--dry-run'     { $dryRun = $true; continue }
                 '--help' {
                     @"
-mkdir (Linux-ish)
-  -p, --parents   no error if existing, make parent directories as needed
-  -v, --verbose   print a message for each created directory
-  --              end of options
+rm (Linux-ish)
+  -f, --force         ignore missing files, never prompt
+  -r, -R, --recursive remove directories and their contents
+  -i, --interactive   prompt before every removal
+  -v, --verbose       explain what is being done
+  -n, --dry-run       show what would be removed
+  --                 end of options (paths can start with -)
 Examples:
-  mkdir newdir
-  mkdir -p a\b\c
-  mkdir -pv out\logs out\data
+  rm -rf build
+  rm -n -rv .\somefolder
+  rm -- -weirdname
 "@ | Write-Host
                     return
                 }
-                default { $paths += $a; continue }
+                default { Write-Error "rm: unknown option '$a'"; return }
             }
         }
 
@@ -793,8 +565,12 @@ Examples:
             $recognized = $true
             foreach ($ch in $bundle.ToCharArray()) {
                 switch ($ch) {
-                    'p' { $parents = $true }
+                    'f' { $force = $true }
+                    'r' { $recurse = $true }
+                    'R' { $recurse = $true }
+                    'i' { $interactive = $true }
                     'v' { $verbose = $true }
+                    'n' { $dryRun = $true }
                     default { $recognized = $false; break }
                 }
                 if (-not $recognized) { break }
@@ -805,19 +581,151 @@ Examples:
         $paths += $a
     }
 
-    if ($paths.Count -eq 0) { Write-Error "mkdir: missing operand"; return }
+    if ($paths.Count -eq 0) { Write-Error "rm: missing operand"; return }
+
+    $ea = if ($force) { 'SilentlyContinue' } else { 'Continue' }
 
     foreach ($p in $paths) {
-        if ($parents) {
-            $null = New-Item -ItemType Directory -Path $p -Force -ErrorAction SilentlyContinue
-            if ($verbose) { Write-Host "mkdir: created '$p'" }
-        } else {
-            if (Test-Path -LiteralPath $p) {
-                Write-Error "mkdir: cannot create directory '$p': File exists"
-                continue
-            }
-            $null = New-Item -ItemType Directory -Path $p -ErrorAction Continue
-            if ($verbose) { Write-Host "mkdir: created '$p'" }
+        if ($interactive) {
+            $ans = Read-Host "rm: remove '$p'? [y/N]"
+            if ($ans -notin @('y','Y','yes','YES')) { continue }
         }
+
+        if ($dryRun) {
+            if ($verbose) { Write-Host "[dry-run] would remove: $p" }
+            else { Write-Host $p }
+            continue
+        }
+
+        try {
+            if (Test-Path -LiteralPath $p) {
+                Remove-Item -LiteralPath $p -Recurse:$recurse -Force:$force -Confirm:$false -ErrorAction $ea
+            } else {
+                Remove-Item -Path $p -Recurse:$recurse -Force:$force -Confirm:$false -ErrorAction $ea
+            }
+            if ($verbose) { Write-Host "removed '$p'" }
+        } catch {
+            if (-not $force) { Write-Error $_ }
+        }
+    }
+}
+
+# ----------------------------
+# cat: uses bat if installed
+# ----------------------------
+function cat {
+    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
+    if (_HasCmd "bat") { & bat @Args; return }
+    if (-not $Args -or $Args.Count -eq 0) { return }
+    Get-Content -LiteralPath $Args
+}
+
+# ----------------------------
+# df / du (rough equivalents)
+# ----------------------------
+function df {
+    $drives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.TotalSize -gt 0 }
+    $drives |
+        Select-Object `
+            @{Name="Name";  Expression={ $_.Name.TrimEnd('\') }},
+            @{Name="Root";  Expression={ $_.RootDirectory.FullName }},
+            @{Name="Used";  Expression={ _HumanSize([long]($_.TotalSize - $_.AvailableFreeSpace)) }},
+            @{Name="Free";  Expression={ _HumanSize([long]($_.AvailableFreeSpace)) }},
+            @{Name="Total"; Expression={ _HumanSize([long]($_.TotalSize)) }} |
+        Format-Table -AutoSize
+}
+
+function du {
+    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Path)
+    if (-not $Path -or $Path.Count -eq 0) { $Path = @(".") }
+    foreach ($p in $Path) {
+        $sum = (Get-ChildItem -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue |
+            Where-Object { -not $_.PSIsContainer } |
+            Measure-Object -Property Length -Sum).Sum
+        "{0}`t{1}" -f (_HumanSize([long]$sum)), $p
+    }
+}
+
+# ----------------------------
+# sudo (best-effort)
+# - If Windows has sudo.exe, use it.
+# - Otherwise, open an elevated pwsh and run the command there.
+# ----------------------------
+function sudo {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    if (-not $Args -or $Args.Count -eq 0) { Write-Error "sudo: missing command"; return }
+
+    $sudoExe = Join-Path $env:SystemRoot "System32\sudo.exe"
+    if (Test-Path -LiteralPath $sudoExe) {
+        & $sudoExe @Args
+        return
+    }
+
+    $shell = if (_HasCmd "pwsh") { "pwsh" } else { "powershell" }
+
+    $cwd = $PWD.Path -replace "'", "''"
+    $qArgs = $Args | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }
+
+    $cmd = "Set-Location -LiteralPath '$cwd'; & $($qArgs[0])"
+    if ($qArgs.Count -gt 1) { $cmd += " " + (($qArgs | Select-Object -Skip 1) -join " ") }
+
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+    Start-Process -Verb RunAs -FilePath $shell -ArgumentList @("-NoExit","-EncodedCommand",$enc)
+}
+
+# ----------------------------
+# Prompt with git branch
+# ----------------------------
+function _GitInfo {
+    if (-not (_HasCmd "git")) { return $null }
+    try {
+        $inside = git rev-parse --is-inside-work-tree 2>$null
+        if ($inside -ne "true") { return $null }
+        $branch = git rev-parse --abbrev-ref HEAD 2>$null
+        $dirty  = (git status --porcelain 2>$null)
+        $mark = if ($dirty) { "*" } else { "" }
+        return "($branch$mark)"
+    } catch { return $null }
+}
+
+function prompt {
+    $loc = $executionContext.SessionState.Path.CurrentLocation
+
+    # Tell Windows Terminal the current working directory (Duplicate Tab uses it)
+    $wtCwd = ""
+    if ($loc.Provider.Name -eq "FileSystem") {
+        $esc = [char]27
+        $wtCwd = "$esc]9;9;`"$($loc.ProviderPath)`"$esc\"
+    }
+
+    $user  = $env:USERNAME
+    $hostn = $env:COMPUTERNAME
+
+    $path = $PWD.Path
+    if ($path.StartsWith($HOME, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $path = "~" + $path.Substring($HOME.Length)
+    }
+
+    $git = _GitInfo
+
+    $cUser  = "`e[1;32m"
+    $cPath  = "`e[1;34m"
+    $cGit   = "`e[0;33m"
+    $cReset = "`e[0m"
+    $symbol = "$"
+
+    if ($git) {
+        return "$wtCwd${cUser}${user}@${hostn}${cReset}:${cPath}${path}${cReset} ${cGit}${git}${cReset}$symbol "
+    } else {
+        return "$wtCwd${cUser}${user}@${hostn}${cReset}:${cPath}${path}${cReset}$symbol "
+    }
+}
+
+# ----------------------------
+# Alias overrides (do this LAST so you never end up with "ls not recognized")
+# ----------------------------
+foreach ($name in @('ls','rm','grep','cat','man','less','mkdir','cd')) {
+    if (Test-Path "Alias:$name") {
+        Remove-Item -Path "Alias:$name" -Force -ErrorAction SilentlyContinue
     }
 }
