@@ -1,10 +1,30 @@
 # unix-like-powershell
 
-A lightweight **PowerShell 7.x** profile for Windows that provides a more “Ubuntu-ish” / bash-like command-line experience: familiar helpers (`head`, `tail`, `grep`, `rm -rf`, `export`, `which`, `cd -`), quieter PSReadLine behavior, and a Git-aware prompt.
+A lightweight **PowerShell 7.5** profile for Windows that provides a more “Ubuntu-ish” / bash-like command-line experience: familiar helpers (`head`, `tail`, `grep`, `rm -rf`, `export`, `which`, `cd -`), quieter PSReadLine behavior, and a Git-aware prompt.
 
-> Repo name: **unix-like-powershell**
+_Disclaimer: this is created and verified by Shaowu Pan with the help of ChatGPT 5.2._
 
 ---
+
+## What Ubunth-ish tools I already have
+
+- `vim` 
+- `wget2` 
+
+Note: the `apt get install` in Windows is [`winget`](https://github.com/microsoft/winget-cli). 
+
+## Installation
+
+1. First, create an empty profile
+```
+if (!(Test-Path -Path $PROFILE)) {
+  New-Item -ItemType File -Path $PROFILE -Force
+}
+```
+2. Second, copy paste the content of this `Microsoft.PowerShell_profile` to that profile you created. 
+3. Reopen your powershell terminal.
+
+For more information, check out this [page](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.5).
 
 ## Features
 
@@ -58,14 +78,16 @@ Optional (recommended):
 
 1) Open your PowerShell profile:
 ```powershell
-notepad $PROFILE
+vim $PROFILE
 ```
 
 2) Paste the contents of this repo’s profile script into that file.
 
 3) Reload:
 
-type `. $PROFILE'
+```
+powershell . $PROFILE
+```
 
 ---
 
@@ -154,4 +176,4 @@ Expected:
 
 ## License
 
-MIT (recommended). Add a `LICENSE` file if you want to make it explicit.
+MIT

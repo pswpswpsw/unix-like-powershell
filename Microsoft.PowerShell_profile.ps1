@@ -487,3 +487,337 @@ function prompt {
         return "$wtCwd${cUser}${user}@${hostn}${cReset}:${cPath}${path}${cReset}$symbol "
     }
 }
+
+# ============================================================
+# Overrides / fixes (unix-like-powershell v3)
+# - Make ls/grep/mkdir behave more like GNU coreutils
+# - Ensure our functions win over built-in aliases
+# ============================================================
+
+Remove-Item -Path Alias:ls    -Force -ErrorAction SilentlyContinue
+Remove-Item -Path Alias:grep  -Force -ErrorAction SilentlyContinue
+Remove-Item -Path Alias:mkdir -Force -ErrorAction SilentlyContinue
+
+function ls {
+    # Use $args (no param block) so calls like `ls -lrth` don't get treated as named parameters.
+    if (_HasCmd "eza") { & eza @args; return }
+
+    $All     = $false
+    $Long    = $false
+    $Human   = $false
+    $Time    = $false
+    $Reverse = $false
+    $Blocks  = $false
+
+    $paths    = @()
+    $stopOpts = $false
+
+    foreach ($a in $args) {
+        if ($stopOpts) { $paths += $a; continue }
+        if ($a -eq '--') { $stopOpts = $true; continue }
+
+        # Long opts (best-effort)
+        if ($a -like '--*') {
+            switch ($a) {
+                '--all'            { $All = $true; continue }
+                '--long'           { $Long = $true; continue }
+                '--human-readable' { $Human = $true; continue }
+                '--time'           { $Time = $true; continue }
+                '--reverse'        { $Reverse = $true; continue }
+                '--size'           { $Blocks = $true; continue }  # mimic -s
+                default            { $paths += $a; continue }
+            }
+        }
+
+        # Short bundled flags: -alh, -lrth, -ls, ...
+        if ($a -like '-*' -and $a -ne '-') {
+            $bundle = $a.Substring(1)
+
+            $recognized = $true
+            foreach ($ch in $bundle.ToCharArray()) {
+                switch ($ch) {
+                    'a' { $All = $true }
+                    'l' { $Long = $true }
+                    'h' { $Human = $true }
+                    't' { $Time = $true }
+                    'r' { $Reverse = $true }
+                    's' { $Blocks = $true }
+                    default { $recognized = $false; break }
+                }
+                if (-not $recognized) { break }
+            }
+
+            if ($recognized) { continue }
+            # If not recognized, treat as a path (for names starting with -)
+        }
+
+        $paths += $a
+    }
+
+    if ($paths.Count -eq 0) { $paths = @(".") }
+
+    # Gather items (support literal paths + globs)
+    $items = @()
+    foreach ($p in $paths) {
+        try {
+            if (Test-Path -LiteralPath $p) {
+                $items += Get-ChildItem -LiteralPath $p -Force:$All -ErrorAction SilentlyContinue
+            } else {
+                $items += Get-ChildItem -Path $p -Force:$All -ErrorAction SilentlyContinue
+            }
+        } catch { }
+    }
+
+    $prop = if ($Time) { 'LastWriteTime' } else { 'Name' }
+    $descending = $Time  # ls -t is newest-first
+    if ($Reverse) { $descending = -not $descending }
+
+    $items = $items | Sort-Object -Property $prop -Descending:$descending
+
+    function _Blocks1K($it) {
+        if ($it.PSIsContainer) { return "-" }
+        return [int][math]::Ceiling($it.Length / 1024.0)
+    }
+
+    if ($Long) {
+        if ($Human) {
+            if ($Blocks) {
+                $items | Select-Object Mode, LastWriteTime,
+                    @{Name="Blocks";Expression={ _Blocks1K $_ }},
+                    @{Name="Size";Expression={ if ($_.PSIsContainer) { "-" } else { _HumanSize $_.Length } }},
+                    Name | Format-Table -AutoSize
+            } else {
+                $items | Select-Object Mode, LastWriteTime,
+                    @{Name="Size";Expression={ if ($_.PSIsContainer) { "-" } else { _HumanSize $_.Length } }},
+                    Name | Format-Table -AutoSize
+            }
+        } else {
+            if ($Blocks) {
+                $items | Select-Object Mode, LastWriteTime,
+                    @{Name="Blocks";Expression={ _Blocks1K $_ }},
+                    Length, Name | Format-Table -AutoSize
+            } else {
+                $items | Format-Table -AutoSize
+            }
+        }
+        return
+    }
+
+    foreach ($it in $items) {
+        $name = if ($it.PSIsContainer) { "$($it.Name)/" } else { $it.Name }
+        if ($Blocks) {
+            "{0}`t{1}" -f (_Blocks1K $it), $name
+        } else {
+            $name
+        }
+    }
+}
+
+function grep {
+    # Use $args so `grep -in PATTERN file` behaves like GNU grep.
+    $ignoreCase = $false
+    $lineNums   = $false
+    $recurse    = $false
+    $invert     = $false
+    $fixed      = $false
+
+    $pattern    = $null
+    $paths      = @()
+    $stopOpts   = $false
+
+    foreach ($a in $args) {
+        if ($stopOpts) {
+            if ($pattern -eq $null) { $pattern = $a } else { $paths += $a }
+            continue
+        }
+
+        if ($a -eq '--') { $stopOpts = $true; continue }
+
+        if ($pattern -eq $null -and $a -like '-*' -and $a -ne '-') {
+            if ($a -like '--*') {
+                switch ($a) {
+                    '--ignore-case' { $ignoreCase = $true; continue }
+                    '--line-number' { $lineNums = $true; continue }
+                    '--recursive'   { $recurse = $true; continue }
+                    '--invert-match'{ $invert = $true; continue }
+                    '--fixed-strings'{ $fixed = $true; continue }
+                    '--help' {
+                        @"
+grep (Linux-ish)
+  -i, --ignore-case      ignore case
+  -n, --line-number      show line numbers (path:line:content)
+  -r, -R, --recursive    recurse into directories
+  -v, --invert-match     select non-matching lines
+  -F, --fixed-strings    literal (non-regex) match
+  --                     end of options
+Examples:
+  grep apple file.txt
+  grep -in apple .
+  grep -r --fixed-strings "hello world" src
+"@ | Write-Host
+                        return
+                    }
+                    default { } # unknown long opts are ignored (treated later)
+                }
+                continue
+            }
+
+            $bundle = $a.Substring(1)
+            $recognized = $true
+            foreach ($ch in $bundle.ToCharArray()) {
+                switch ($ch) {
+                    'i' { $ignoreCase = $true }
+                    'n' { $lineNums = $true }
+                    'r' { $recurse = $true }
+                    'R' { $recurse = $true }
+                    'v' { $invert = $true }
+                    'F' { $fixed = $true }
+                    'E' { } # extended regex (default in rg), no-op
+                    default { $recognized = $false; break }
+                }
+                if (-not $recognized) { break }
+            }
+            if ($recognized) { continue }
+            # not a pure flag bundle => treat as pattern (e.g., negative numbers)
+        }
+
+        if ($pattern -eq $null) { $pattern = $a; continue }
+        $paths += $a
+    }
+
+    if (-not $pattern) { Write-Error "grep: missing PATTERN"; return }
+    if ($paths.Count -eq 0) { $paths = @(".") }
+
+    # If ripgrep exists, prefer it (fast + native semantics)
+    if (_HasCmd "rg") {
+        $rgArgs = @()
+        if ($ignoreCase) { $rgArgs += "-i" }
+        if ($lineNums)   { $rgArgs += "-n" }
+        if ($invert)     { $rgArgs += "-v" }
+        if ($fixed)      { $rgArgs += "-F" }
+
+        # Handle directories like grep: require -r for directories
+        if (-not $recurse) {
+            foreach ($p in $paths) {
+                if (Test-Path -LiteralPath $p -PathType Container) {
+                    Write-Error "grep: $($p): Is a directory (use -r)"
+                    return
+                }
+            }
+        }
+
+        $rgArgs += $pattern
+        $rgArgs += $paths
+        & rg @rgArgs
+        return
+    }
+
+    # Fallback: Select-String
+    $fileList = New-Object System.Collections.Generic.List[string]
+
+    foreach ($p in $paths) {
+        if (Test-Path -LiteralPath $p) {
+            if (Test-Path -LiteralPath $p -PathType Container) {
+                if (-not $recurse) { Write-Error "grep: $($p): Is a directory (use -r)"; return }
+                Get-ChildItem -LiteralPath $p -Recurse -File -ErrorAction SilentlyContinue |
+                    ForEach-Object { $fileList.Add($_.FullName) } | Out-Null
+            } else {
+                $fileList.Add((Resolve-Path -LiteralPath $p).Path) | Out-Null
+            }
+        } else {
+            # wildcard
+            if ($recurse) {
+                Get-ChildItem -Path $p -Recurse -File -ErrorAction SilentlyContinue |
+                    ForEach-Object { $fileList.Add($_.FullName) } | Out-Null
+            } else {
+                Get-ChildItem -Path $p -File -ErrorAction SilentlyContinue |
+                    ForEach-Object { $fileList.Add($_.FullName) } | Out-Null
+            }
+        }
+    }
+
+    if ($fileList.Count -eq 0) { return }
+
+    $ssArgs = @{
+        Pattern     = $pattern
+        Path        = $fileList.ToArray()
+        ErrorAction = 'SilentlyContinue'
+        NotMatch    = $invert
+    }
+
+    # GNU grep default is case-sensitive; Select-String default is not.
+    $ssArgs.CaseSensitive = -not $ignoreCase
+
+    if ($fixed) { $ssArgs.SimpleMatch = $true }
+
+    foreach ($m in (Select-String @ssArgs)) {
+        if ($lineNums) { "{0}:{1}:{2}" -f $m.Path, $m.LineNumber, $m.Line.TrimEnd() }
+        else           { "{0}:{1}"     -f $m.Path, $m.Line.TrimEnd() }
+    }
+}
+
+function mkdir {
+    # GNU-ish mkdir: supports -p and multiple paths.
+    $parents = $false
+    $verbose = $false
+    $paths   = @()
+    $stopOpts = $false
+
+    foreach ($a in $args) {
+        if ($stopOpts) { $paths += $a; continue }
+        if ($a -eq '--') { $stopOpts = $true; continue }
+
+        if ($a -like '--*') {
+            switch ($a) {
+                '--parents' { $parents = $true; continue }
+                '--verbose' { $verbose = $true; continue }
+                '--help' {
+                    @"
+mkdir (Linux-ish)
+  -p, --parents   no error if existing, make parent directories as needed
+  -v, --verbose   print a message for each created directory
+  --              end of options
+Examples:
+  mkdir newdir
+  mkdir -p a\b\c
+  mkdir -pv out\logs out\data
+"@ | Write-Host
+                    return
+                }
+                default { $paths += $a; continue }
+            }
+        }
+
+        if ($a -like '-*' -and $a -ne '-') {
+            $bundle = $a.Substring(1)
+            $recognized = $true
+            foreach ($ch in $bundle.ToCharArray()) {
+                switch ($ch) {
+                    'p' { $parents = $true }
+                    'v' { $verbose = $true }
+                    default { $recognized = $false; break }
+                }
+                if (-not $recognized) { break }
+            }
+            if ($recognized) { continue }
+        }
+
+        $paths += $a
+    }
+
+    if ($paths.Count -eq 0) { Write-Error "mkdir: missing operand"; return }
+
+    foreach ($p in $paths) {
+        if ($parents) {
+            $null = New-Item -ItemType Directory -Path $p -Force -ErrorAction SilentlyContinue
+            if ($verbose) { Write-Host "mkdir: created '$p'" }
+        } else {
+            if (Test-Path -LiteralPath $p) {
+                Write-Error "mkdir: cannot create directory '$p': File exists"
+                continue
+            }
+            $null = New-Item -ItemType Directory -Path $p -ErrorAction Continue
+            if ($verbose) { Write-Host "mkdir: created '$p'" }
+        }
+    }
+}
