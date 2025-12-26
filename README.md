@@ -1,31 +1,66 @@
 # unix-like-powershell
 
-A lightweight **PowerShell 7.5** profile for Windows that provides a more “Ubuntu-ish” / bash-like command-line experience: familiar helpers (`head`, `tail`, `grep`, `rm -rf`, `export`, `which`, `cd -`), quieter PSReadLine behavior, and a Git-aware prompt.
+![Demo](assets/demo.gif)
 
-_Disclaimer: this is created and verified by Shaowu Pan with the help of ChatGPT 5.2._
+
+
+A lightweight **PowerShell 7.5** profile for Windows that makes the terminal feel more “Ubuntu-ish” / bash-like: familiar helper commands (`head`, `tail`, `grep`, `rm -rf`, `export`, `which`, `cd -`), quieter PSReadLine behavior, and a Git-aware prompt.
+
+> Note: This repo packages a PowerShell **profile script** (not a module). You install it by copying it into your `$PROFILE`.
 
 ---
 
-## What Ubunth-ish tools I already have
+## Disclaimer
 
-- `vim` 
-- `wget2` 
+This profile was created and tested by **Shaowu Pan**, with assistance from **ChatGPT (GPT-5.2)**.
 
-Note: the `apt get install` in Windows is [`winget`](https://github.com/microsoft/winget-cli). 
+---
+
+## What I already have installed (Ubuntu-ish tools)
+
+- `vim`
+- `wget2`
+
+On Windows, the closest “apt install” equivalent is **winget**:  
+https://github.com/microsoft/winget-cli
+
+---
 
 ## Installation
 
-1. First, create an empty profile
-```
-if (!(Test-Path -Path $PROFILE)) {
-  New-Item -ItemType File -Path $PROFILE -Force
+### 1) Create your profile file (if it doesn’t exist)
+```powershell
+if (!(Test-Path -LiteralPath $PROFILE)) {
+  New-Item -ItemType File -Path $PROFILE -Force | Out-Null
 }
 ```
-2. Type `$PROFILE` in your powershell to find the path of that profile. For example, in my case it is `C:\Users\pswpe\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`.
-3. Next, copy paste the content of this `Microsoft.PowerShell_profile` to that profile you created. 
-4. Reopen your powershell terminal.
 
-For more information, check out this [page](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.5).
+### 2) Find the profile path
+```powershell
+$PROFILE
+```
+
+Example (Windows):  
+`C:\Users\pswpe\Documents\PowerShell\Microsoft.PowerShell_profile.ps1`
+
+### 3) Copy the profile script into your `$PROFILE`
+Open your profile:
+```powershell
+vim $PROFILE
+```
+
+Then copy/paste the contents of this repo’s `Microsoft.PowerShell_profile.ps1` into it and save.
+
+### 4) Reload (or restart) your terminal
+Reload without restarting:
+```powershell
+. $PROFILE
+```
+
+More details on profiles:  
+https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.5
+
+---
 
 ## Features
 
@@ -48,17 +83,17 @@ For more information, check out this [page](https://learn.microsoft.com/en-us/po
 - `head -n N file`
 - `tail -n N file`, `tail -f file`
 - `less file` — page output
-- `man cmd` — PowerShell help in pager
-- `grep` — uses `rg` if installed; otherwise `Select-String`
-  - supports `-i`, `-n`, `-r`, `-v`
-- `rm` — Linux-ish parsing and behavior
-  - supports `rm -rf`, `rm -r -f`, `rm -- -weirdname`, `rm -n` (dry run), `rm -v`
+- `man cmd` — PowerShell help in a pager
+- `grep` — uses `rg` if installed; otherwise falls back to `Select-String`
+  - supports: `-i`, `-n`, `-r`, `-v`
+- `rm` — Linux-ish argument parsing
+  - supports: `rm -rf`, `rm -r -f`, `rm -- -weirdname`, `rm -n` (dry run), `rm -v`
 
 ### Navigation + prompt
-- `cd -` returns to previous directory
+- `cd -` returns to the previous directory
 - `..`, `...`, `....` quick jumps
 - Prompt shows: `user@host:path (branch*)$` with ANSI colors
-  - `*` indicates dirty Git repo
+  - `*` indicates a dirty Git repo
 
 ---
 
@@ -68,27 +103,10 @@ For more information, check out this [page](https://learn.microsoft.com/en-us/po
 - Works best in **Windows Terminal**, but not required
 
 Optional (recommended):
-- `git` (for branch in prompt)
-- [`ripgrep (rg)`](https://github.com/BurntSushi/ripgrep) for faster `grep`
-- [`bat`](https://github.com/sharkdp/bat) for nicer `cat` output (if you extend it)
-- [`eza`](https://github.com/eza-community/eza) for a nicer `ls` (if you extend it)
-
----
-
-## Install
-
-1) Open your PowerShell profile:
-```powershell
-vim $PROFILE
-```
-
-2) Paste the contents of this repo’s profile script into that file.
-
-3) Reload:
-
-```
-powershell . $PROFILE
-```
+- `git` (branch display in prompt)
+- `rg` (ripgrep) for faster `grep`
+- `bat` for nicer `cat` (if you choose to extend)
+- `eza` for a nicer `ls` (if you choose to extend)
 
 ---
 
