@@ -239,14 +239,6 @@ This produces a human-readable `test-report.txt` and a machine-readable `test-re
 
 ---
 
-## Notes on Git line endings (CRLF/LF warnings)
-
-On Windows, Git may warn that `LF will be replaced by CRLF`. This is common and does **not** indicate a problem with the profile script.
-
-If you want to avoid these warnings for this repo, add a `.gitattributes` that enforces `eol=crlf` for `*.ps1` and `*.md`, or configure Git’s `core.autocrlf` to match your workflow.
-
----
-
 ## License
 
 MIT.
