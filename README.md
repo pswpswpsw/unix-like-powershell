@@ -1,7 +1,7 @@
 # unix-like-powershell
 
-![Demo](assets/demo.gif)
 
+<img src="assets/demo.gif" alt="Demo" width="350">
 
 
 A lightweight **PowerShell 7.5** profile for Windows that makes the terminal feel more “Ubuntu-ish” / bash-like: familiar helper commands (`head`, `tail`, `grep`, `rm -rf`, `export`, `which`, `cd -`), quieter PSReadLine behavior, and a Git-aware prompt.
