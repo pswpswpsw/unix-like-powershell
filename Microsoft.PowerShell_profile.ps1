@@ -646,32 +646,6 @@ function du {
     }
 }
 
-# ----------------------------
-# sudo (best-effort)
-# - If Windows has sudo.exe, use it.
-# - Otherwise, open an elevated pwsh and run the command there.
-# ----------------------------
-function sudo {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-    if (-not $Args -or $Args.Count -eq 0) { Write-Error "sudo: missing command"; return }
-
-    $sudoExe = Join-Path $env:SystemRoot "System32\sudo.exe"
-    if (Test-Path -LiteralPath $sudoExe) {
-        & $sudoExe @Args
-        return
-    }
-
-    $shell = if (_HasCmd "pwsh") { "pwsh" } else { "powershell" }
-
-    $cwd = $PWD.Path -replace "'", "''"
-    $qArgs = $Args | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }
-
-    $cmd = "Set-Location -LiteralPath '$cwd'; & $($qArgs[0])"
-    if ($qArgs.Count -gt 1) { $cmd += " " + (($qArgs | Select-Object -Skip 1) -join " ") }
-
-    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
-    Start-Process -Verb RunAs -FilePath $shell -ArgumentList @("-NoExit","-EncodedCommand",$enc)
-}
 
 # ----------------------------
 # Prompt with git branch

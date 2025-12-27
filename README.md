@@ -138,7 +138,8 @@ Expected: `CommandType` should be `Function`.
 - `vim`
 - `wget2` 
 - [`winget`](https://github.com/microsoft/winget-cli)
-- `fd` (alternative to `find`)
+- `fd` (alternative to `find`, check how to install [here](https://winstall.app/apps/sharkdp.fd))
+- `gsudo` (alternative to `sudo`, you can use `winget` to install)
 
 ---
 
